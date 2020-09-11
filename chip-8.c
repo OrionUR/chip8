@@ -36,9 +36,20 @@ chip8* initialize() {
     myChip8->sp = 0;
 
     // Clear display
+    for (int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++) {
+        myChip8->gfx[i] = 0;
+    }
     // Clear stack
     // Clear register V0 - VF
+    for (int i = 0; i < MAX_SP; i++) {
+        myChip8->stack[i] = 0;
+        myChip8->v[i] = 0;
+    }
+
     // Clear memory
+    for (int i = 0; i < MAX_MEM; i++) {
+        myChip8->memory[i] = 0;
+    }
 
     // Load fontset
     for (int i = 0; i < 80; i++) {
