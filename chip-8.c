@@ -1,8 +1,13 @@
 #include "chip-8.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+
+#define MAX_FONT 80
+#define PROGRAM_START 0x200
+#define MAX_ROM 0xea0 - 0x200
 
 static u8 chip8_fontset[] = {
     0xF0, 0x90, 0x90, 0x90, 0xF0,  // 0
@@ -24,186 +29,296 @@ static u8 chip8_fontset[] = {
 };
 
 chip8* initialize() {
-    chip8* myChip8 = malloc(sizeof(chip8));
+    chip8* c8 = (chip8*)malloc(sizeof(chip8));
 
-    // Program counter starts at 0x200
-    myChip8->pc = 0x200;
-    // Reset current opcode
-    myChip8->opcode = 0;
-    // Reset index register
-    myChip8->i = 0;
-    // Reset stack pointer
-    myChip8->sp = 0;
+    c8->pc = PROGRAM_START; /* Program counter starts at 0x200 */
+    c8->opcode = 0;         /* Reset current opcode */
+    c8->i = 0;              /* Reset index register */
+    c8->sp = 0;             /* Reset stack pointer */
 
-    // Clear display
+    /* Clear display and draw flag */
     for (int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++) {
-        myChip8->gfx[i] = 0;
+        c8->gfx[i] = 0;
     }
-    // Clear stack
-    // Clear register V0 - VF
-    for (int i = 0; i < MAX_SP; i++) {
-        myChip8->stack[i] = 0;
-        myChip8->v[i] = 0;
+    c8->draw_flag = true;
+
+    /* Clear stack and register V0 - VF */
+    for (int i = 0; i < MAX_S; i++) {
+        c8->stack[i] = 0;
+        c8->v[i] = 0;
     }
 
-    // Clear memory
+    /* Clear memory */
     for (int i = 0; i < MAX_MEM; i++) {
-        myChip8->memory[i] = 0;
+        c8->memory[i] = 0;
     }
 
-    // Load fontset
-    for (int i = 0; i < 80; i++) {
-        myChip8->memory[i] = chip8_fontset[i];
+    /* Load fontset */
+    for (int i = 0; i < MAX_FONT; i++) {
+        c8->memory[i] = chip8_fontset[i];
     }
 
-    // Reset timers
+    /* Reset timers */
+    c8->delay_timer = 0;
+    c8->sound_timer = 0;
 
-    return myChip8;
+    return c8;
 }
 
-void loadGame(chip8* myChip8, char* buffer, int bufferSize) {
-    for (int i = 0; i < bufferSize; i++) {
-        myChip8->memory[i + 512] = buffer[i];
+bool loadGame(chip8* c8, const char* filename) {
+    printf("Loading: %s\n", filename);
+
+    /* Open file */
+    FILE* pFile = fopen(filename, "rb");
+    if (pFile == NULL) {
+        fputs("File error", stderr);
+        return false;
+    }
+
+    /* Check file size */
+    fseek(pFile, 0, SEEK_END);
+    u32 lSize = ftell(pFile);
+    rewind(pFile);
+    printf("File size: %d\n", (u16)lSize);
+
+    /* Allocate memory to contain the whole file */
+    char* buffer = (char*)malloc(lSize);
+    if (buffer == NULL) {
+        fputs("Memory error", stderr);
+        return false;
+    }
+
+    /* Copy the file into the buffer */
+    u16 result = fread(buffer, 1, lSize, pFile);
+    if (result != lSize) {
+        fputs("Reading error", stderr);
+        return false;
+    }
+
+    /* Copy buffer to Chip8 memory */
+    if (lSize <= MAX_ROM) {
+        for (int i = 0; i < lSize; i++) {
+            c8->memory[i + PROGRAM_START] = buffer[i];
+        }
+    } else {
+        printf("Error: ROM too big for memory.\n");
+    }
+
+    /* Close file, free buffer */
+    fclose(pFile);
+    free(buffer);
+
+    return true;
+}
+
+void emulateCycle(chip8* c8) {
+    /* Fetch opcode */
+    c8->opcode = c8->memory[c8->pc] << 8 | c8->memory[c8->pc + 1];
+    /* Decode opcode and execute opcode */
+    switch (c8->opcode >> 12) {
+        case 0:
+            op_0(c8);
+            break;
+        case 1:
+            op_1(c8);
+            break;
+        case 2:
+            op_2(c8);
+            break;
+        case 3:
+            op_3(c8);
+            break;
+        case 4:
+            op_4(c8);
+            break;
+        case 5:
+            op_5(c8);
+            break;
+        case 6:
+            op_6(c8);
+            break;
+        case 7:
+            op_7(c8);
+            break;
+        case 8:
+            op_8(c8);
+            break;
+        case 9:
+            op_9(c8);
+            break;
+        case 10:
+            Op_A(c8);
+            break;
+        case 11:
+            Op_B(c8);
+            break;
+        case 12:
+            Op_C(c8);
+            break;
+        case 13:
+            Op_D(c8);
+            break;
+        case 14:
+            Op_E(c8);
+            break;
+        case 15:
+            Op_F(c8);
+            break;
+    }
+
+    /* Update timers */
+    if (c8->delay_timer > 0) {
+        c8->delay_timer--;
+    }
+    if (c8->sound_timer > 0) {
+        c8->sound_timer--;
     }
 }
 
-void emulateCycle(chip8* myChip8) {
-    // Fetch opcode
-    myChip8->opcode =
-        myChip8->memory[myChip8->pc] << 8 | myChip8->memory[myChip8->pc + 1];
-    // Decode opcode
-    // Execute opcode
-
-    // Update timers
-}
-
-void drawFlag(chip8* myChip8);
-void setKeys(chip8* myChip8);
-void drawGraphics(chip8* myChip8);
+void drawGraphics(chip8* c8) {}
+void setKeys(chip8* c8);
 
 /*************************/
 /* static function below */
 /*************************/
 
-static void Op_0(chip8* myChip8) {
-    switch (myChip8->opcode & 0xff) {
+static void Op_0(chip8* c8) {
+    switch (c8->opcode & 0xff) {
+        /* 00E0: Clears the screen. */
         case 0xe0: {
-            clearScreen(myChip8);
+            clearScreen(c8);
         } break;
 
+        /* 00EE: Returns from a subroutine. */
         case 0xee: {
-            Assert(myChip8->sp > 0);
-            myChip8->pc = myChip8->stack[--myChip8->sp];
+            Assert(c8->sp > 0);
+            c8->pc = c8->stack[--c8->sp];
         } break;
 
-        // 0NNN
+        /* 0NNN: Calls machine code routine (RCA 1802 for COSMAC VIP) at address
+         * NNN. Not necessary for most ROMs. */
         default: {
-            myChip8->pc = myChip8->opcode & 0xfff;
+            c8->pc = c8->opcode & 0xfff;
         }
     }
 }
 
-static void Op_1(chip8* myChip8) {
-    myChip8->pc = myChip8->opcode & 0xfff;
+/* 1NNN: Jumps to address NNN. */
+static void Op_1(chip8* c8) {
+    c8->pc = c8->opcode & 0xfff;
 }
 
-static void Op_2(chip8* myChip8) {
-    Assert(myChip8->sp < MAX_SP);
-    myChip8->stack[myChip8->sp++] = myChip8->pc;
-    myChip8->pc = myChip8->opcode & 0xfff;
+/* 2NNN: Calls subroutine at NNN. */
+static void Op_2(chip8* c8) {
+    Assert(c8->sp < MAX_S);
+    c8->stack[c8->sp++] = c8->pc;
+    c8->pc = c8->opcode & 0xfff;
 }
 
-static void Op_3(chip8* myChip8) {
-    u8 vx = ((myChip8->opcode) >> 8) & 0xf;
+/* 3XNN: Skips the next instruction if VX equals NN. (Usually the next
+ * instruction is a jump to skip a code block) */
+static void Op_3(chip8* c8) {
+    u8 vx = ((c8->opcode) >> 8) & 0xf;
 
-    if (myChip8->v[vx] == myChip8->opcode & 0xff) {
-        myChip8->pc += 2;
-    }
-}
-static void Op_4(chip8* myChip8) {
-    u8 vx = ((myChip8->opcode) >> 8) & 0xf;
-
-    if (myChip8->v[vx] != myChip8->opcode & 0xff) {
-        myChip8->pc += 2;
+    if (c8->v[vx] == c8->opcode & 0xff) {
+        c8->pc += 2;
     }
 }
 
-static void Op_5(chip8* myChip8) {
-    u8 vx = ((myChip8->opcode) >> 8) & 0xf;
-    u8 vy = ((myChip8->opcode) >> 4) & 0xf;
+/* 4XNN: Skips the next instruction if VX doesn't equal NN. (Usually the next
+ * instruction is a jump to skip a code block) */
+static void Op_4(chip8* c8) {
+    u8 vx = ((c8->opcode) >> 8) & 0xf;
 
-    if (myChip8->v[vx] == myChip8->v[vy]) {
-        myChip8->pc += 2;
+    if (c8->v[vx] != c8->opcode & 0xff) {
+        c8->pc += 2;
     }
 }
 
-static void Op_6(chip8* myChip8) {
-    u8 vx = ((myChip8->opcode) >> 8) & 0xf;
+/* 5XY0: Skips the next instruction if VX equals VY. (Usually the next
+ * instruction is a jump to skip a code block) */
+static void Op_5(chip8* c8) {
+    u8 vx = ((c8->opcode) >> 8) & 0xf;
+    u8 vy = ((c8->opcode) >> 4) & 0xf;
 
-    myChip8->v[vx] = myChip8->opcode & 0xff;
+    if (c8->v[vx] == c8->v[vy]) {
+        c8->pc += 2;
+    }
 }
 
-static void Op_7(chip8* myChip8) {
-    u8 vx = ((myChip8->opcode) >> 8) & 0xf;
+/* 6XNN: Sets VX to NN. */
+static void Op_6(chip8* c8) {
+    u8 vx = ((c8->opcode) >> 8) & 0xf;
 
-    myChip8->v[vx] += myChip8->opcode & 0xff;
+    c8->v[vx] = c8->opcode & 0xff;
 }
 
-static void Op_8(chip8* myChip8) {
-    u8 vx = ((myChip8->opcode) >> 8) & 0xf;
-    u8 vy = ((myChip8->opcode) >> 4) & 0xf;
+/* 7XNN: Adds NN to VX. (Carry flag is not changed) */
+static void Op_7(chip8* c8) {
+    u8 vx = ((c8->opcode) >> 8) & 0xf;
 
-    switch (myChip8->opcode & 0xf) {
-        // 8XY0
+    c8->v[vx] += c8->opcode & 0xff;
+}
+
+static void Op_8(chip8* c8) {
+    u8 vx = ((c8->opcode) >> 8) & 0xf;
+    u8 vy = ((c8->opcode) >> 4) & 0xf;
+
+    switch (c8->opcode & 0xf) {
+        /* 8XY0: Sets VX to the value of VY. */
         case 0: {
-            myChip8->v[vx] = myChip8->v[vy];
+            c8->v[vx] = c8->v[vy];
         } break;
 
-        // 8XY1
+        /* 8XY1: Sets VX to VX or VY. (Bitwise OR operation) */
         case 1: {
-            myChip8->v[vx] = myChip8->v[vx] | myChip8->v[vy];
+            c8->v[vx] = c8->v[vx] | c8->v[vy];
         } break;
 
-        // 8XY2
+        /* 8XY2: Sets VX to VX and VY. (Bitwise AND operation) */
         case 2: {
-            myChip8->v[vx] = myChip8->v[vx] & myChip8->v[vy];
+            c8->v[vx] = c8->v[vx] & c8->v[vy];
         } break;
 
-        // 8XY3
+        /* 8XY3: Sets VX to VX xor VY. */
         case 3: {
-            myChip8->v[vx] = myChip8->v[vx] ^ myChip8->v[vy];
+            c8->v[vx] = c8->v[vx] ^ c8->v[vy];
         } break;
 
-        // 8XY4
+        /* 8XY4: Adds VY to VX. VF is set to 1 when there's a carry, and to 0
+         * when there isn't. */
         case 4: {
-            myChip8->v[0xf] =
-                ((u16)myChip8->v[vx] + (u16)myChip8->v[vy]) > 255 ? 1 : 0;
-            myChip8->v[vx] += myChip8->v[vy];
+            c8->v[0xf] = ((u16)c8->v[vx] + (u16)c8->v[vy]) > 255 ? 1 : 0;
+            c8->v[vx] += c8->v[vy];
         } break;
 
-        // 8XY5
+        /* 8XY5: VY is subtracted from VX. VF is set to 0 when there's a borrow,
+         * and 1 when there isn't. */
         case 5: {
-            myChip8->v[0xf] = myChip8->v[vx] < myChip8->v[vy] ? 0 : 1;
-            myChip8->v[vx] -= myChip8->v[vy];
+            c8->v[0xf] = c8->v[vx] < c8->v[vy] ? 0 : 1;
+            c8->v[vx] -= c8->v[vy];
         } break;
 
-        // 8XY6
+        /* 8XY6: Stores the least significant bit of VX in VF and then shifts VX
+         * to the right by 1. */
         case 6: {
-            myChip8->v[0xf] = myChip8->v[vx] & 0x1;
-            myChip8->v[vx] >>= 1;
+            c8->v[0xf] = c8->v[vx] & 0x1;
+            c8->v[vx] >>= 1;
         } break;
 
-        // 8XY7
+        /* 8XY7: Sets VX to VY minus VX. VF is set to 0 when there's a borrow,
+         * and 1 when there isn't. */
         case 7:
 
-            myChip8->v[0xf] = myChip8->v[vx] > myChip8->v[vy] ? 0 : 1;
-            myChip8->v[vx] = myChip8->v[vy] - myChip8->v[vx];
+            c8->v[0xf] = c8->v[vx] > c8->v[vy] ? 0 : 1;
+            c8->v[vx] = c8->v[vy] - c8->v[vx];
             break;
 
-        // 8XYE
+        /* 8XYE: Stores the most significant bit of VX in VF and then shifts VX
+         * to the left by 1. */
         case 0xe: {
-            myChip8->v[0xf] = (myChip8->v[vx] >> 7) & 0x1;
-            myChip8->v[vx] <<= 1;
+            c8->v[0xf] = (c8->v[vx] >> 7) & 0x1;
+            c8->v[vx] <<= 1;
         } break;
 
         default: {
@@ -212,63 +327,79 @@ static void Op_8(chip8* myChip8) {
     }
 }
 
-static void Op_9(chip8* myChip8) {
-    u8 vx = ((myChip8->opcode) >> 8) & 0xf;
-    u8 vy = ((myChip8->opcode) >> 4) & 0xf;
+/* 9XY0: Skips the next instruction if VX doesn't equal VY. (Usually the next
+ * instruction is a jump to skip a code block) */
+static void Op_9(chip8* c8) {
+    u8 vx = ((c8->opcode) >> 8) & 0xf;
+    u8 vy = ((c8->opcode) >> 4) & 0xf;
 
-    if (myChip8->v[vx] != myChip8->v[vy]) {
-        myChip8->pc += 2;
+    if (c8->v[vx] != c8->v[vy]) {
+        c8->pc += 2;
     }
 }
-static void Op_A(chip8* myChip8) {
-    myChip8->i = myChip8->opcode & 0xfff;
+
+/* ANNN: Sets I to the address NNN. */
+static void Op_A(chip8* c8) {
+    c8->i = c8->opcode & 0xfff;
 }
 
-static void Op_B(chip8* myChip8) {
-    myChip8->pc = (myChip8->opcode & 0xfff) + (myChip8->v[0x0]);
+/* BNNN: Jumps to the address NNN plus V0. */
+static void Op_B(chip8* c8) {
+    c8->pc = (c8->opcode & 0xfff) + (c8->v[0x0]);
 }
 
-static void Op_C(chip8* myChip8) {
-    u8 vx = ((myChip8->opcode) >> 8) & 0xf;
+/* CXNN: Sets VX to the result of a bitwise and operation on a random number
+ * (Typically: 0 to 255) and NN. */
+static void Op_C(chip8* c8) {
+    u8 vx = ((c8->opcode) >> 8) & 0xf;
     srand((unsigned)time(0));
 
-    myChip8->v[vx] = (rand() % 256) & (myChip8->opcode & 0xff);
+    c8->v[vx] = (rand() % 256) & (c8->opcode & 0xff);
 }
 
-static void Op_D(chip8* myChip8) {
-    u8 vx = ((myChip8->opcode) >> 8) & 0xf;
-    u8 vy = ((myChip8->opcode) >> 4) & 0xf;
-    u8 height = myChip8->opcode & 0xf;
+/* DXYN: Draws a sprite at coordinate (VX, VY) that has a width of 8 pixels and
+ * a height of N+1 pixels. Each row of 8 pixels is read as bit-coded starting
+ * from memory location I; I value doesn’t change after the execution of this
+ * instruction. As described above, VF is set to 1 if any screen pixels are
+ * flipped from set to unset when the sprite is drawn, and to 0 if that doesn’t
+ * happen */
+static void Op_D(chip8* c8) {
+    u8 vx = ((c8->opcode) >> 8) & 0xf;
+    u8 vy = ((c8->opcode) >> 4) & 0xf;
+    u8 height = c8->opcode & 0xf;
     u8 row_graph;
 
     for (int yline = 0; yline < height; yline++) {
-        row_graph = myChip8->memory[myChip8->i + yline];
+        row_graph = c8->memory[c8->i + yline];
         for (int xline = 0; xline < 8; xline++) {
-            myChip8->v[0xf] = myChip8->gfx[vx + (vy + yline) * SCREEN_WIDTH] ^
-                                      (row_graph >> xline) == 1
-                                  ? 1
-                                  : 0;
-            myChip8->gfx[vx + (vy + yline) * SCREEN_WIDTH] ^=
-                row_graph >> xline;
+            c8->v[0xf] = c8->gfx[vx + (vy + yline) * SCREEN_WIDTH] ^
+                                 (row_graph >> xline) == 1
+                             ? 1
+                             : 0;
+            c8->gfx[vx + (vy + yline) * SCREEN_WIDTH] ^= row_graph >> xline;
         }
     }
+    c8->draw_flag = true;
 }
 
-static void Op_E(chip8* myChip8) {
-    u8 vx = (myChip8->opcode >> 8) & 0xf;
+static void Op_E(chip8* c8) {
+    u8 vx = (c8->opcode >> 8) & 0xf;
 
-    switch (myChip8->opcode & 0xff) {
-        // EX9E
+    switch (c8->opcode & 0xff) {
+        /* EX9E: Skips the next instruction if the key stored in VX is pressed.
+         * (Usually the next instruction is a jump to skip a code block) */
         case 0x9e: {
-            if (myChip8->key[myChip8->v[vx]]) {
-                myChip8->pc += 2;
+            if (c8->key[c8->v[vx]]) {
+                c8->pc += 2;
             }
         } break;
 
-        // EXA1
+        /* EXA1: Skips the next instruction if the key stored in VX isn't
+         * pressed. (Usually the next instruction is a jump to skip a code
+         * block) */
         case 0xa1: {
-            if (!myChip8->key[myChip8->v[vx]]) {
-                myChip8->pc += 2;
+            if (!c8->key[c8->v[vx]]) {
+                c8->pc += 2;
             }
         } break;
 
@@ -277,60 +408,83 @@ static void Op_E(chip8* myChip8) {
     }
 }
 
-static void Op_F(chip8* myChip8) {
-    u8 vx = (myChip8->opcode >> 8) & 0xf;
+static void Op_F(chip8* c8) {
+    u8 vx = (c8->opcode >> 8) & 0xf;
 
-    switch (myChip8->opcode & 0xff) {
-        // FX07
+    switch (c8->opcode & 0xff) {
+        /* FX07: Sets VX to the value of the delay timer. */
         case 0x07: {
-            myChip8->v[vx] = myChip8->delay_timer;
+            c8->v[vx] = c8->delay_timer;
         } break;
 
-        // FX0A
+        /* FX0A: A key press is awaited, and then stored in VX. (Blocking
+         * Operation. All instruction halted until next key event) */
         case 0x0a: {
-            myChip8->wait = true;
-            myChip8->wait_reg = myChip8->v[vx];
+            bool key_press = false;
+
+            for (int i = 0; i < MAX_K; i++) {
+                if (c8->key[i] != 0) {
+                    c8->v[vx] = i;
+                    key_press = true;
+                }
+            }
+
+            if (!key_press) {
+                return;
+            }
+
+            c8->pc += 2;
         } break;
 
-        // FX15
+        /* FX15: Sets the delay timer to VX. */
         case 0x15: {
-            myChip8->delay_timer = myChip8->v[vx];
+            c8->delay_timer = c8->v[vx];
         } break;
 
-        // FX18
+        /* FX18: Sets the sound timer to VX. */
         case 0x18: {
-            myChip8->sound_timer = myChip8->v[vx];
+            c8->sound_timer = c8->v[vx];
         } break;
 
-        // FX1E
+        /* FX1E: Adds VX to I. VF is not affected. */
         case 0x1e: {
-            myChip8->i += myChip8->v[vx];
+            c8->i += c8->v[vx];
         } break;
 
-        // FX29
+        /* FX29: Sets I to the location of the sprite for the character in VX.
+         * Characters 0-F (in hexadecimal) are represented by a 4x5 font. */
         case 0x29: {
-            myChip8->i = myChip8->v[vx] * 5;
+            c8->i = c8->v[vx] * 5;
         } break;
 
-        // FX33
+        /* FX33: Stores the binary-coded decimal representation of VX, with the
+         * most significant of three digits at the address in I, the middle
+         * digit at I plus 1, and the least significant digit at I plus 2. (In
+         * other words, take the decimal representation of VX, place the
+         * hundreds digit in memory at location in I, the tens digit at location
+         * I+1, and the ones digit at location I+2.) */
         case 0x33: {
-            u8 temp = myChip8->v[vx];
-            myChip8->memory[myChip8->i] = temp / 100;
-            myChip8->memory[myChip8->i + 1] = (temp / 10) % 10;
-            myChip8->memory[myChip8->i + 2] = temp % 10;
+            u8 temp = c8->v[vx];
+            c8->memory[c8->i] = temp / 100;
+            c8->memory[c8->i + 1] = (temp / 10) % 10;
+            c8->memory[c8->i + 2] = temp % 10;
         } break;
 
-        // FX55
+        /* FX55: Stores V0 to VX (including VX) in memory starting at address I.
+         * The offset from I is increased by 1 for each value written, but I
+         * itself is left unmodified. */
         case 0x55: {
             for (int i = 0; i <= vx; i++) {
-                myChip8->memory[myChip8->i + i] = myChip8->v[i];
+                c8->memory[c8->i + i] = c8->v[i];
             }
         } break;
 
-        // FX65
+        /* FX65: Fills V0 to VX (including VX) with values from memory starting
+         * at address I. The offset from I is increased by 1 for each value
+         * written, but I itself is left unmodified. */
         case 0x65: {
             for (int i = 0; i <= vx; i++) {
-                myChip8->v[i] = myChip8->memory[myChip8->i + i];
+                c8->v[i] = c8->memory[c8->i + i];
             }
         } break;
     }
