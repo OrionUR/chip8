@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #define MAX_FONT 80
@@ -29,38 +30,15 @@ static u8 chip8_fontset[] = {
 };
 
 chip8* initialize() {
-    chip8* c8 = (chip8*)malloc(sizeof(chip8));
+    chip8* c8 = malloc(sizeof(chip8));
 
+    memset(c8, 0, sizeof(chip8));
     c8->pc = PROGRAM_START; /* Program counter starts at 0x200 */
-    c8->opcode = 0;         /* Reset current opcode */
-    c8->i = 0;              /* Reset index register */
-    c8->sp = 0;             /* Reset stack pointer */
-
-    /* Clear display and draw flag */
-    for (int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++) {
-        c8->gfx[i] = 0;
-    }
-    c8->draw_flag = true;
-
-    /* Clear stack and register V0 - VF */
-    for (int i = 0; i < MAX_S; i++) {
-        c8->stack[i] = 0;
-        c8->v[i] = 0;
-    }
-
-    /* Clear memory */
-    for (int i = 0; i < MAX_MEM; i++) {
-        c8->memory[i] = 0;
-    }
-
+    c8->draw_flag = true;   /* Clear screen once */
     /* Load fontset */
     for (int i = 0; i < MAX_FONT; i++) {
         c8->memory[i] = chip8_fontset[i];
     }
-
-    /* Reset timers */
-    c8->delay_timer = 0;
-    c8->sound_timer = 0;
 
     return c8;
 }
@@ -77,31 +55,32 @@ bool loadGame(chip8* c8, const char* filename) {
 
     /* Check file size */
     fseek(pFile, 0, SEEK_END);
-    u32 lSize = ftell(pFile);
+    size_t lSize = ftell(pFile);
     rewind(pFile);
-    printf("File size: %d\n", (u16)lSize);
+    if (lSize > MAX_ROM) {
+        fputs("Error: ROM too big for memory", stderr);
+        return false;
+    } else {
+        printf("File size: %d\n", lSize);
+    }
 
     /* Allocate memory to contain the whole file */
-    char* buffer = (char*)malloc(lSize);
+    char* buffer = malloc(lSize);
     if (buffer == NULL) {
         fputs("Memory error", stderr);
         return false;
     }
 
     /* Copy the file into the buffer */
-    u16 result = fread(buffer, 1, lSize, pFile);
+    size_t result = fread(buffer, 1, lSize, pFile);
     if (result != lSize) {
         fputs("Reading error", stderr);
         return false;
     }
 
     /* Copy buffer to Chip8 memory */
-    if (lSize <= MAX_ROM) {
-        for (int i = 0; i < lSize; i++) {
-            c8->memory[i + PROGRAM_START] = buffer[i];
-        }
-    } else {
-        printf("Error: ROM too big for memory.\n");
+    for (int i = 0; i < lSize; i++) {
+        c8->memory[i + PROGRAM_START] = buffer[i];
     }
 
     /* Close file, free buffer */
@@ -117,54 +96,55 @@ void emulateCycle(chip8* c8) {
     /* Decode opcode and execute opcode */
     switch (c8->opcode >> 12) {
         case 0:
-            op_0(c8);
+            Op0(c8);
             break;
         case 1:
-            op_1(c8);
+            Op1(c8);
             break;
         case 2:
-            op_2(c8);
+            Op2(c8);
             break;
         case 3:
-            op_3(c8);
+            Op3(c8);
             break;
         case 4:
-            op_4(c8);
+            Op4(c8);
             break;
         case 5:
-            op_5(c8);
+            Op5(c8);
             break;
         case 6:
-            op_6(c8);
+            Op6(c8);
             break;
         case 7:
-            op_7(c8);
+            Op7(c8);
             break;
         case 8:
-            op_8(c8);
+            Op8(c8);
             break;
         case 9:
-            op_9(c8);
+            Op9(c8);
             break;
         case 10:
-            Op_A(c8);
+            OpA(c8);
             break;
         case 11:
-            Op_B(c8);
+            OpB(c8);
             break;
         case 12:
-            Op_C(c8);
+            OpC(c8);
             break;
         case 13:
-            Op_D(c8);
+            OpD(c8);
             break;
         case 14:
-            Op_E(c8);
+            OpE(c8);
             break;
         case 15:
-            Op_F(c8);
+            OpF(c8);
             break;
     }
+    c8->pc += 2;
 
     /* Update timers */
     if (c8->delay_timer > 0) {
@@ -175,23 +155,26 @@ void emulateCycle(chip8* c8) {
     }
 }
 
-void drawGraphics(chip8* c8) {}
-void setKeys(chip8* c8);
-
 /*************************/
 /* static function below */
 /*************************/
 
-static void Op_0(chip8* c8) {
+static void Op0(chip8* c8) {
     switch (c8->opcode & 0xff) {
         /* 00E0: Clears the screen. */
         case 0xe0: {
-            clearScreen(c8);
+            for (int i = 0; i < SCREEN_HEIGHT * SCREEN_WIDTH; i++) {
+                c8->gfx[i] = 0;
+            }
+            c8->draw_flag = true;
         } break;
 
         /* 00EE: Returns from a subroutine. */
         case 0xee: {
-            Assert(c8->sp > 0);
+            if (!(c8->sp)) {
+                printf("sp error\n");
+                abort();
+            }
             c8->pc = c8->stack[--c8->sp];
         } break;
 
@@ -204,20 +187,23 @@ static void Op_0(chip8* c8) {
 }
 
 /* 1NNN: Jumps to address NNN. */
-static void Op_1(chip8* c8) {
+static void Op1(chip8* c8) {
     c8->pc = c8->opcode & 0xfff;
 }
 
 /* 2NNN: Calls subroutine at NNN. */
-static void Op_2(chip8* c8) {
-    Assert(c8->sp < MAX_S);
+static void Op2(chip8* c8) {
+    if (c8->sp >= MAX_S) {
+        printf("sp error\n");
+        abort();
+    }
     c8->stack[c8->sp++] = c8->pc;
     c8->pc = c8->opcode & 0xfff;
 }
 
 /* 3XNN: Skips the next instruction if VX equals NN. (Usually the next
  * instruction is a jump to skip a code block) */
-static void Op_3(chip8* c8) {
+static void Op3(chip8* c8) {
     u8 vx = ((c8->opcode) >> 8) & 0xf;
 
     if (c8->v[vx] == c8->opcode & 0xff) {
@@ -227,7 +213,7 @@ static void Op_3(chip8* c8) {
 
 /* 4XNN: Skips the next instruction if VX doesn't equal NN. (Usually the next
  * instruction is a jump to skip a code block) */
-static void Op_4(chip8* c8) {
+static void Op4(chip8* c8) {
     u8 vx = ((c8->opcode) >> 8) & 0xf;
 
     if (c8->v[vx] != c8->opcode & 0xff) {
@@ -237,7 +223,7 @@ static void Op_4(chip8* c8) {
 
 /* 5XY0: Skips the next instruction if VX equals VY. (Usually the next
  * instruction is a jump to skip a code block) */
-static void Op_5(chip8* c8) {
+static void Op5(chip8* c8) {
     u8 vx = ((c8->opcode) >> 8) & 0xf;
     u8 vy = ((c8->opcode) >> 4) & 0xf;
 
@@ -247,20 +233,20 @@ static void Op_5(chip8* c8) {
 }
 
 /* 6XNN: Sets VX to NN. */
-static void Op_6(chip8* c8) {
+static void Op6(chip8* c8) {
     u8 vx = ((c8->opcode) >> 8) & 0xf;
 
     c8->v[vx] = c8->opcode & 0xff;
 }
 
 /* 7XNN: Adds NN to VX. (Carry flag is not changed) */
-static void Op_7(chip8* c8) {
+static void Op7(chip8* c8) {
     u8 vx = ((c8->opcode) >> 8) & 0xf;
 
     c8->v[vx] += c8->opcode & 0xff;
 }
 
-static void Op_8(chip8* c8) {
+static void Op8(chip8* c8) {
     u8 vx = ((c8->opcode) >> 8) & 0xf;
     u8 vy = ((c8->opcode) >> 4) & 0xf;
 
@@ -322,14 +308,15 @@ static void Op_8(chip8* c8) {
         } break;
 
         default: {
-            Assert(!"invalid code path");
+            printf("invalid code path\n");
+            abort();
         }
     }
 }
 
 /* 9XY0: Skips the next instruction if VX doesn't equal VY. (Usually the next
  * instruction is a jump to skip a code block) */
-static void Op_9(chip8* c8) {
+static void Op9(chip8* c8) {
     u8 vx = ((c8->opcode) >> 8) & 0xf;
     u8 vy = ((c8->opcode) >> 4) & 0xf;
 
@@ -339,18 +326,18 @@ static void Op_9(chip8* c8) {
 }
 
 /* ANNN: Sets I to the address NNN. */
-static void Op_A(chip8* c8) {
+static void OpA(chip8* c8) {
     c8->i = c8->opcode & 0xfff;
 }
 
 /* BNNN: Jumps to the address NNN plus V0. */
-static void Op_B(chip8* c8) {
+static void OpB(chip8* c8) {
     c8->pc = (c8->opcode & 0xfff) + (c8->v[0x0]);
 }
 
 /* CXNN: Sets VX to the result of a bitwise and operation on a random number
  * (Typically: 0 to 255) and NN. */
-static void Op_C(chip8* c8) {
+static void OpC(chip8* c8) {
     u8 vx = ((c8->opcode) >> 8) & 0xf;
     srand((unsigned)time(0));
 
@@ -358,31 +345,39 @@ static void Op_C(chip8* c8) {
 }
 
 /* DXYN: Draws a sprite at coordinate (VX, VY) that has a width of 8 pixels and
- * a height of N+1 pixels. Each row of 8 pixels is read as bit-coded starting
+ * a height of N pixels. Each row of 8 pixels is read as bit-coded starting
  * from memory location I; I value doesn’t change after the execution of this
  * instruction. As described above, VF is set to 1 if any screen pixels are
  * flipped from set to unset when the sprite is drawn, and to 0 if that doesn’t
  * happen */
-static void Op_D(chip8* c8) {
+static void OpD(chip8* c8) {
     u8 vx = ((c8->opcode) >> 8) & 0xf;
     u8 vy = ((c8->opcode) >> 4) & 0xf;
     u8 height = c8->opcode & 0xf;
-    u8 row_graph;
+    u8 width;
+    u8 sprite;
 
-    for (int yline = 0; yline < height; yline++) {
-        row_graph = c8->memory[c8->i + yline];
-        for (int xline = 0; xline < 8; xline++) {
-            c8->v[0xf] = c8->gfx[vx + (vy + yline) * SCREEN_WIDTH] ^
-                                 (row_graph >> xline) == 1
-                             ? 1
-                             : 0;
-            c8->gfx[vx + (vy + yline) * SCREEN_WIDTH] ^= row_graph >> xline;
+    c8->v[0xf] = 0;
+    /* overflow protect */
+    width = vx + 8 < SCREEN_WIDTH ? 8 : (SCREEN_WIDTH - vx);
+    height = vy + height < SCREEN_HEIGHT ? height : (SCREEN_HEIGHT - vy);
+
+    for (int y = 0; y < height; y++) {
+        sprite = c8->memory[c8->i + y];
+        for (int x = 0; x < width; x++) {
+            if (sprite & (0x80 >> x)) {
+                if (c8->gfx[vx + x + ((vy + y) * SCREEN_WIDTH)]) {
+                    c8->v[0xf] = 1;
+                }
+                c8->gfx[vx + x + ((vy + y) * SCREEN_WIDTH)] ^= 1;
+            }
         }
     }
+
     c8->draw_flag = true;
 }
 
-static void Op_E(chip8* c8) {
+static void OpE(chip8* c8) {
     u8 vx = (c8->opcode >> 8) & 0xf;
 
     switch (c8->opcode & 0xff) {
@@ -408,7 +403,7 @@ static void Op_E(chip8* c8) {
     }
 }
 
-static void Op_F(chip8* c8) {
+static void OpF(chip8* c8) {
     u8 vx = (c8->opcode >> 8) & 0xf;
 
     switch (c8->opcode & 0xff) {

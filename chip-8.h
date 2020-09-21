@@ -11,12 +11,6 @@
 #define SCREEN_WIDTH 64
 #define SCREEN_HEIGHT 32
 
-#define Assert(expr)                          \
-    if (!(expr)) {                            \
-        printf("assert error: %s \n", #expr); \
-        *(volatile int*)0 = 0;                \
-    }
-
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
@@ -39,7 +33,5 @@ typedef struct chip8 {
 chip8* initialize();
 bool loadGame(chip8* myChip8, const char* filename);
 void emulateCycle(chip8* myChip8);
-void drawGraphics(chip8* myChip8);
-void setKeys(chip8* myChip8);
 
 #endif
